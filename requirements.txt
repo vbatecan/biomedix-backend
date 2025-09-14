@@ -1,0 +1,13 @@
+sqlalchemy
+uvicorn[standard]
+fastapi
+asyncpg
+deepface
+opencv-python
+numpy
+python-dotenv
+pydantic
+passlib
+pyjwt
+python-multipart
+ultralytics
