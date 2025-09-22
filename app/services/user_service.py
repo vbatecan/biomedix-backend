@@ -45,5 +45,4 @@ class UserService:
         with open(image_path, "wb") as f:
             f.write(image.file.read())
 
-        # TODO: In face recognition module, we have to refresh it to include the new face of the user.
         return db_user
