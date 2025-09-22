@@ -55,9 +55,18 @@ async def recognize_face(db: AsyncSession, image: np.ndarray, faces_detected: li
             identity: Series = result["identity"]
             confidence: Series = result["confidence"]
             combined = list(zip(identity, confidence))
+
+            if not combined:
+                print("No matches found")
+                print(identity, confidence)
+                continue
+
             highest_confidence = max(combined, key=lambda x: x[1])
             face_name = highest_confidence[0].split("/")[-2].split(".")[0]
             logger.info(f"Recognized {face_name} with confidence {highest_confidence[1]}")
+
+            if highest_confidence[1] < 0.6:  # Confidence threshold
+                continue
 
             # Get User by Face Name
             user = await UserService.get_user_by_face_name(db, face_name)
@@ -83,7 +92,7 @@ async def face_recognition(image: UploadFile, db=fastapi.Depends(database.get_db
         np.frombuffer(await image.read(), np.uint8), cv2.IMREAD_COLOR
     )
     logger.info(f"Received image: {image}")
-    faces = df.extract_faces(image_data, enforce_detection=False, detector_backend="opencv", align=False,
+    faces = df.extract_faces(image_data, enforce_detection=False, detector_backend="opencv", align=True,
                              anti_spoofing=True)
     if len(faces) <= 0:
         return {"message": "No faces detected"}
@@ -92,6 +101,13 @@ async def face_recognition(image: UploadFile, db=fastapi.Depends(database.get_db
     for face in faces:
         (x, y, w, h, left_eye, right_eye) = face["facial_area"].values()
         confidence = face["confidence"]
+        is_real = face.get("is_real", None)
+        antispoof_score = face.get("antispoof_score", None)
+
+        if not is_real:  # Example threshold for anti-spoofing
+            logger.warning(f"Face at {(x, y, w, h)} failed anti-spoofing check with score {antispoof_score}")
+            continue
+
         faces_detected.append(
             Face(
                 box=(x, y, w, h),
@@ -102,5 +118,4 @@ async def face_recognition(image: UploadFile, db=fastapi.Depends(database.get_db
         )
 
     recognition_results = await recognize_face(db, image_data, faces_detected)
-    logger.info("Returning recognition results", recognition_results)
     return recognition_results
