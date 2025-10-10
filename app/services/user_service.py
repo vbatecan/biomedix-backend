@@ -1,7 +1,7 @@
 import os
 import app.core.security as security
 
-from sqlalchemy import select
+from sqlalchemy import select, Exists, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import User
 from app.database.schemas import UserInputSchema
@@ -46,3 +46,42 @@ class UserService:
             f.write(image.file.read())
 
         return db_user
+
+    @staticmethod
+    async def delete_user(db: AsyncSession, user_id: int):
+        result = await db.execute(
+            select(User).where(User.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user:
+            await db.delete(user)
+            await db.commit()
+        else:
+            raise ValueError("User not found")
+        return user
+
+    @staticmethod
+    async def toggle_active_status(db: AsyncSession, user_id: int, is_active: bool):
+        result = await db.execute(
+            select(User).where(User.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user.is_active == is_active:
+            return user
+
+        if user:
+            user.is_active = is_active
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+        else:
+            raise ValueError("User not found")
+        return user
+
+    @staticmethod
+    async def is_exist(db: AsyncSession, user_id: int):
+        result = (await db.execute(
+            exists().where(User.id == user_id)
+        )).scalar()
+
+        return result
