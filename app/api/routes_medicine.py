@@ -1,46 +1,49 @@
 import logging
-from typing import List
-import uuid
 import os
+import uuid
+from datetime import datetime, timedelta
+from typing import List
 
 import cv2
 import fastapi
 import numpy as np
 from fastapi import HTTPException, UploadFile, Depends
+from fastapi.security import OAuth2PasswordBearer
 from ultralytics.engine.results import Probs
 
 import app.database.database as db
+from app.core import security
 from app.database.schemas import MedicineSchema
 from app.scheduler.scheduler import scheduler
+from app.scheduler.tasks import retrain_classification_model
 from app.services.classification import ClassificationService
 from app.services.inventory_service import InventoryService
 from app.services.object_detection import ObjectDetectionService
 from app.types.MedicineInput import MedicineInput
-from app.scheduler.tasks import retrain_classification_model
 
 router = fastapi.APIRouter()
 logger = logging.getLogger(__name__)
 cls_service = ClassificationService()
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-#
-#
-# async def get_current_user(request: fastapi.Request, token: str = fastapi.Depends(oauth2_scheme)):
-#     try:
-#         cookie_token = request.cookies.get("token")
-#         if cookie_token:
-#             token = cookie_token
-#
-#         payload = await security.decode_access_token(token)
-#
-#         if payload is None:
-#             raise fastapi.HTTPException(status_code=401, detail="Invalid authentication credentials")
-#         # You can add more checks here, like verifying user existence in the database or yung multi roles
-#         return payload["sub"]
-#     except ValueError as e:
-#         print(f"Error decoding token: {e}")
-#         raise fastapi.HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+async def get_current_user(request: fastapi.Request, token: str = fastapi.Depends(oauth2_scheme)):
+    try:
+        logger.info("Working")
+        cookie_token = request.cookies.get("token")
+        if cookie_token:
+            token = cookie_token
+
+        payload = await security.decode_access_token(token)
+
+        if payload is None:
+            raise fastapi.HTTPException(status_code=401, detail="Invalid authentication credentials")
+        # You can add more checks here, like verifying user existence in the database or yung multi roles
+        return payload["sub"]
+    except ValueError as e:
+        print(f"Error decoding token: {e}")
+        raise fastapi.HTTPException(status_code=401, detail="Invalid authentication credentials")
 
 
 # @router.get("/all", response_model=List[MedicineSchema])
@@ -55,9 +58,29 @@ async def all(db=fastapi.Depends(db.get_db)):
 
 @router.post("/add_stock")
 async def add_stock(
-    medicine_id: int, increment: int, user_id: int, db=fastapi.Depends(db.get_db)
+        medicine_name: str, quantity: int, db=fastapi.Depends(db.get_db), user=fastapi.Depends(get_current_user)
 ):
-    return await InventoryService.add_stock(db, medicine_id, increment, user_id)
+    user_id = int(user) if user and user.isdigit() else None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user ID")
+
+    try:
+        return await InventoryService.add_stock(db, medicine_name, quantity, user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/reduce_stock")
+async def reduce_stock(
+        medicine_name: str, quantity: int, db=fastapi.Depends(db.get_db), user=fastapi.Depends(get_current_user)
+):
+    user_id = int(user) if user and user.isdigit() else None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user ID")
+    try:
+        return await InventoryService.reduce_stock(db, medicine_name, quantity, user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/{medicine_id}", response_model=MedicineSchema)
@@ -73,13 +96,15 @@ async def search_medicine(name: str, db=fastapi.Depends(db.get_db)):
     return medicines
 
 
+# noinspection D
 @router.post("/add")
 async def add_medicine(
-    thumbnail: UploadFile,
-    training_files: list[UploadFile],
-    immediate_training: bool = False,  # Development parameter: if True, starts training immediately with faster settings
-    db=fastapi.Depends(db.get_db),
-    medicine_input: MedicineInput = Depends(),
+        thumbnail: UploadFile,
+        training_files: list[UploadFile],
+        immediate_training: bool = False,
+        # Development parameter: if True, starts training immediately with faster settings
+        db=fastapi.Depends(db.get_db),
+        medicine_input: MedicineInput = Depends(),
 ):
     """
     Add a new medicine to the system.
@@ -142,6 +167,7 @@ async def add_medicine(
             )
         x1, y1, x2, y2 = map(int, result[0]["bbox"])
         cropped_image = image_data[y1:y2, x1:x2]
+
         # Save cropped image
         ext = os.path.splitext(training_file.filename)[1] or ".jpg"
         filename = f"{uuid.uuid4().hex}{ext}"
@@ -149,12 +175,6 @@ async def add_medicine(
         cv2.imwrite(training_file_location, cropped_image)
         logger.info(f"Received and processed training file: {training_file.filename}")
 
-        # ext = os.path.splitext(training_file.filename)[1] or ".jpg"
-        # filename = f"{uuid.uuid4().hex}{ext}"
-        # training_file_location = os.path.join(training_location, filename)
-        # with open(training_file_location, "wb") as f:
-        #     f.write(await training_file.read())
-        # logger.info(f"Received training file: {training_file.filename}")
     new_medicine = await InventoryService.add_medicine(
         db, medicine_input, thumbnail_location
     )
@@ -162,13 +182,19 @@ async def add_medicine(
     if not new_medicine:
         raise HTTPException(status_code=500, detail="Failed to add medicine to database")
 
-    # TODO: Schedule training job using apscheduler
     job_id = f"train_{medicine_input.name}"
-
     if immediate_training:
         scheduler.add_job(
             retrain_classification_model,
             "date",
+            id=job_id,
+            replace_existing=True,
+        )
+    else:
+        scheduler.add_job(
+            retrain_classification_model,
+            "date",
+            run_date=datetime.now() + timedelta(minutes=10),
             id=job_id,
             replace_existing=True,
         )
@@ -180,9 +206,39 @@ async def update_medicine(medicine_id: int, name: str = None, description: str =
     pass
 
 
-@router.delete("/delete/{medicine_id}")
-async def delete_medicine(medicine_id: int):
-    pass
+@router.delete("/delete/{medicine_id}", response_model=MedicineSchema)
+async def delete_medicine(medicine_id: int, db=fastapi.Depends(db.get_db)):
+    try:
+        medicine: MedicineSchema = await InventoryService.delete_medicine(db, medicine_id)
+
+        # Also delete associated training images
+        training_dir = f"uploads/training/{medicine.name}/"
+
+        if os.path.exists(training_dir):
+            logger.debug("Removing training images at %s", training_dir)
+            for root, dirs, files in os.walk(training_dir, topdown=False):
+                for file in files:
+                    os.remove(os.path.join(root, file))
+                for dir in dirs:
+                    os.rmdir(os.path.join(root, dir))
+            os.rmdir(training_dir)
+
+        # Remove thumbnail
+        if medicine.image_path and os.path.exists(medicine.image_path):
+            logger.debug("Removing thumbnail at %s", medicine.image_path)
+            os.remove(medicine.image_path)
+
+        return medicine
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/uploads/thumbnails/{filename}")
+async def get_thumbnail(filename: str):
+    file_path = os.path.join("uploads", "thumbnails", filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return fastapi.responses.FileResponse(file_path)
 
 
 @router.post("/recognize")
