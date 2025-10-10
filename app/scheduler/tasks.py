@@ -17,18 +17,17 @@ augmentor = A.Compose([
     # Blur & camera imperfections
     A.MotionBlur(blur_limit=3, p=0.3),  # simulate shaky hand
     A.GaussianBlur(blur_limit=(3, 5), p=0.3),  # out-of-focus
-    A.GaussNoise(var_limit=(10, 30), p=0.3),  # low-quality camera noise
+    A.GaussNoise(p=0.3),  # low-quality camera noise
 
     # Slight geometric variation (not too strong for pills/labels)
-    A.ShiftScaleRotate(
-        shift_limit=0.05,
-        scale_limit=0.1,
-        rotate_limit=10,
-        p=0.4,
-        border_mode=0
+    A.Affine(
+        shear=(-10, 10),
+        p=0.3,
+        fill_mask=False,
+        border_mode=0,
     ),
 
-    A.OpticalDistortion(distort_limit=0.05, shift_limit=0.02, p=0.3),
+    A.OpticalDistortion(distort_limit=0.05, p=0.3),
     A.Perspective(scale=(0.02, 0.05), p=0.3),
 
     # Standardize image size for training
@@ -92,7 +91,7 @@ def retrain_classification_model():
         epochs=epochs,
         batch=batch_size,
         imgsz=128,
-        patience=20,
+        patience=10,
     )
 
     model.save('models/classification.pt')
