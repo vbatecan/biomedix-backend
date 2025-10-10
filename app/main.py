@@ -7,6 +7,7 @@ from app.api.routes_auth import router as auth_routes
 from app.api.routes_users import router as users_routes
 from app.api.routes_medicine import router as medicine_routes
 from app.api.routes_face_recognition import router as face_recognition_routes
+from app.api.routes_transactions import router as transactions_routes
 from app.scheduler.scheduler import start_scheduler, scheduler
 
 # Configure logging
@@ -49,8 +50,9 @@ app.include_router(auth_routes, prefix="/auth", tags=["auth"])
 app.include_router(users_routes, prefix="/users", tags=["users"])
 app.include_router(medicine_routes, prefix="/medicines", tags=["medicines"])
 app.include_router(face_recognition_routes, prefix="/faces", tags=["faces"])
+app.include_router(transactions_routes, prefix="/transactions", tags=["transactions"])
 
 
 @app.get("/")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": True}
