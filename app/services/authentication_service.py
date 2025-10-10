@@ -24,4 +24,4 @@ class AuthenticationService:
             return MessageResponse(ok=False, message="Incorrect password")
 
         access_token = await security.create_access_token(user_id=result.id, expires_delta=None)
-        return LoginSuccess(ok=True, access_token=access_token, token_type="bearer")
+        return LoginSuccess(ok=True, access_token=access_token, token_type="bearer", user=result.__dict__)
