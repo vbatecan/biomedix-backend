@@ -13,3 +13,4 @@ python-multipart
 ultralytics
 apscheduler
 albumentationsx
+tf-keras
