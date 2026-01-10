@@ -1,0 +1,1 @@
+INSERT INTO users (face_name, email, password, is_active, role) VALUES ('Vince Angelo Batecan', 'llTheBlankll@gmail.com', '$2y$10$RbIKjNGZc89HFVOUd4NYM.RQ2PbMpQK0CuzJlszd64X6vu.U/qsw.$2y$10$RbIKjNGZc89HFVOUd4NYM.RQ2PbMpQK0CuzJlszd64X6vu.U/qsw.', 'true', 'PHARMACIST')
