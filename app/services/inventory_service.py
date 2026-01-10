@@ -79,6 +79,7 @@ class InventoryService:
         medicine = result.scalar_one_or_none()
         return medicine
 
+    @staticmethod
     async def search_by_name(db: AsyncSession, name: str):
         result = await db.execute(
             select(Medicine).where(Medicine.name.ilike(f"%{name}%"))

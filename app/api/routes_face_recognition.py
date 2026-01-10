@@ -127,45 +127,77 @@ async def recognize_face(
 
 @router.post("/recognize")
 async def face_recognition(image: UploadFile, db=fastapi.Depends(database.get_db)):
-    image_data = cv2.imdecode(
-        np.frombuffer(await image.read(), np.uint8), cv2.IMREAD_COLOR
-    )
-    logger.info("Received image: %s" % image.filename)
-    faces = df.extract_faces(
-        image_data,
-        enforce_detection=False,
-        detector_backend="opencv",
-        align=True,
-        anti_spoofing=True,
-    )
+    try:
+        content = await image.read()
+        nparr = np.frombuffer(content, np.uint8)
+        image_data = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if image_data is None:
+             raise fastapi.HTTPException(status_code=400, detail="Failed to decode image")
+             
+        logger.info("Received image: %s" % image.filename)
+    except Exception as e:
+        logger.error(f"Error processing image upload: {e}")
+        raise fastapi.HTTPException(status_code=400, detail="Invalid image file")
+
+    try:
+        faces = df.extract_faces(
+            image_data,
+            enforce_detection=False,
+            detector_backend="opencv",
+            align=True,
+            anti_spoofing=True,
+        )
+    except Exception as e:
+        logger.error(f"Error extracting faces: {e}")
+        # If face extraction fails, it might be due to no face or other issues.
+        # DeepFace might raise ValueError or similar.
+        return {"message": "No faces detected or error in processing"}
+
     if len(faces) <= 0:
         return {"message": "No faces detected"}
 
     faces_detected = []
     for face in faces:
-        (x, y, w, h, left_eye, right_eye) = face["facial_area"].values()
-        confidence = face["confidence"]
-        is_real = face.get("is_real", None)
-        antispoof_score = face.get("antispoof_score", None)
+        try:
+            (x, y, w, h, left_eye, right_eye) = face["facial_area"].values()
+            confidence = face["confidence"]
+            is_real = face.get("is_real", None)
+            antispoof_score = face.get("antispoof_score", None)
 
-        if not is_real:
-            logger.warning(
-                "Face at %s failed anti-spoofing check with score %s",
-                (x, y, w, h),
-                antispoof_score,
+            if not is_real:
+                logger.warning(
+                    "Face at %s failed anti-spoofing check with score %s",
+                    (x, y, w, h),
+                    antispoof_score,
+                )
+                continue
+
+            faces_detected.append(
+                Face(
+                    box=(x, y, w, h),
+                    left_eye=left_eye,
+                    right_eye=right_eye,
+                    confidence=confidence,
+                )
             )
+        except Exception as e:
+            logger.error(f"Error parsing face data: {e}")
             continue
 
-        faces_detected.append(
-            Face(
-                box=(x, y, w, h),
-                left_eye=left_eye,
-                right_eye=right_eye,
-                confidence=confidence,
-            )
-        )
+    try:
+        recognition_results = await recognize_face(db, image_data, faces_detected)
+    except Exception as e:
+        logger.error(f"Error in recognition logic: {e}", exc_info=True)
+        raise fastapi.HTTPException(status_code=500, detail="Error during face recognition process")
 
-    recognition_results = await recognize_face(db, image_data, faces_detected)
-    if not TEST: 
-        requests.get(f"http://{cabinet_url}/unlock", timeout=1)
+    if not TEST:
+        try:
+            requests.get(f"http://{cabinet_url}/unlock", timeout=1)
+        except requests.RequestException as e:
+            logger.error(f"Failed to unlock cabinet: {e}")
+            # Do not fail the whole request just because cabinet unlock failed, but maybe warn?
+            # Or maybe we should return a warning in the response.
+            pass
+
     return recognition_results

@@ -42,13 +42,11 @@ async def get_current_user(request: fastapi.Request, token: str = fastapi.Depend
         # You can add more checks here, like verifying user existence in the database or yung multi roles
         return payload["sub"]
     except ValueError as e:
-        print(f"Error decoding token: {e}")
+        logger.error(f"Error decoding token: {e}")
         raise fastapi.HTTPException(status_code=401, detail="Invalid authentication credentials")
 
 
-# @router.get("/all", response_model=List[MedicineSchema])
-# async def all(db=fastapi.Depends(db.get_db), current_user: str = fastapi.Depends(get_current_user)):
-#     return await InventoryService.list_all(db)
+
 
 
 @router.get("/all", response_model=List[MedicineSchema])
@@ -85,7 +83,10 @@ async def reduce_stock(
 
 @router.get("/{medicine_id}", response_model=MedicineSchema)
 async def get_medicine(medicine_id: int, db=fastapi.Depends(db.get_db)):
-    return await InventoryService.get_medicine(db, medicine_id)
+    medicine = await InventoryService.get_medicine(db, medicine_id)
+    if not medicine:
+        raise HTTPException(status_code=404, detail="Medicine not found")
+    return medicine
 
 
 @router.get("/search/{name}")
@@ -96,7 +97,6 @@ async def search_medicine(name: str, db=fastapi.Depends(db.get_db)):
     return medicines
 
 
-# noinspection D
 @router.post("/add")
 async def add_medicine(
         thumbnail: UploadFile,
@@ -142,68 +142,79 @@ async def add_medicine(
     if not training_files:
         raise HTTPException(status_code=400, detail="No training files provided")
 
-    for training_file in training_files:
-        if not training_file.filename:
-            raise HTTPException(
-                status_code=400, detail="One of the training files has no filename"
+    try:
+        for training_file in training_files:
+            if not training_file.filename:
+                raise HTTPException(
+                    status_code=400, detail="One of the training files has no filename"
+                )
+            if not training_file.content_type.startswith("image/"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid training file type for {training_file.filename}. Please upload an image.",
+                )
+
+            # Convert file to numpy array for detection
+            image_data = cv2.imdecode(
+                np.frombuffer(await training_file.read(), np.uint8), cv2.IMREAD_COLOR
             )
-        if not training_file.content_type.startswith("image/"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid training file type for {training_file.filename}. Please upload an image.",
+            result = await ObjectDetectionService.detect_medicines(image_data)
+
+            # Crop the detected medicine from the image
+            if not result:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No medicine detected in training image {training_file.filename}. Please upload a clear image of the medicine.",
+                )
+            x1, y1, x2, y2 = map(int, result[0]["bbox"])
+            cropped_image = image_data[y1:y2, x1:x2]
+
+            # Save cropped image
+            ext = os.path.splitext(training_file.filename)[1] or ".jpg"
+            filename = f"{uuid.uuid4().hex}{ext}"
+            training_file_location = os.path.join(training_location, filename)
+            cv2.imwrite(training_file_location, cropped_image)
+            logger.info(f"Received and processed training file: {training_file.filename}")
+
+    except cv2.error as e:
+        logger.error(f"OpenCV error in add_medicine: {e}")
+        raise HTTPException(status_code=400, detail="Error processing image. The file might be corrupted.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in add_medicine: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred while adding the medicine.")
+
+    try:
+        new_medicine = await InventoryService.add_medicine(
+            db, medicine_input, thumbnail_location
+        )
+
+        if not new_medicine:
+            raise HTTPException(status_code=500, detail="Failed to add medicine to database")
+
+        job_id = f"train_{medicine_input.name}"
+        if immediate_training:
+            scheduler.add_job(
+                retrain_classification_model,
+                "date",
+                id=job_id,
+                replace_existing=True,
             )
-
-        # Convert file to numpy array for detection
-        image_data = cv2.imdecode(
-            np.frombuffer(await training_file.read(), np.uint8), cv2.IMREAD_COLOR
-        )
-        result = await ObjectDetectionService.detect_medicines(image_data)
-
-        # Crop the detected medicine from the image
-        if not result:
-            raise HTTPException(
-                status_code=400,
-                detail=f"No medicine detected in training image {training_file.filename}. Please upload a clear image of the medicine.",
+        else:
+            scheduler.add_job(
+                retrain_classification_model,
+                "date",
+                run_date=datetime.now() + timedelta(minutes=10),
+                id=job_id,
+                replace_existing=True,
             )
-        x1, y1, x2, y2 = map(int, result[0]["bbox"])
-        cropped_image = image_data[y1:y2, x1:x2]
-
-        # Save cropped image
-        ext = os.path.splitext(training_file.filename)[1] or ".jpg"
-        filename = f"{uuid.uuid4().hex}{ext}"
-        training_file_location = os.path.join(training_location, filename)
-        cv2.imwrite(training_file_location, cropped_image)
-        logger.info(f"Received and processed training file: {training_file.filename}")
-
-    new_medicine = await InventoryService.add_medicine(
-        db, medicine_input, thumbnail_location
-    )
-
-    if not new_medicine:
-        raise HTTPException(status_code=500, detail="Failed to add medicine to database")
-
-    job_id = f"train_{medicine_input.name}"
-    if immediate_training:
-        scheduler.add_job(
-            retrain_classification_model,
-            "date",
-            id=job_id,
-            replace_existing=True,
-        )
-    else:
-        scheduler.add_job(
-            retrain_classification_model,
-            "date",
-            run_date=datetime.now() + timedelta(minutes=10),
-            id=job_id,
-            replace_existing=True,
-        )
-    return new_medicine
+        return new_medicine
+    except Exception as e:
+        logger.error(f"Error saving medicine to database: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to save medicine information.")
 
 
-@router.put("/update/{medicine_id}")
-async def update_medicine(medicine_id: int, name: str = None, description: str = None):
-    pass
 
 
 @router.delete("/delete/{medicine_id}", response_model=MedicineSchema)
@@ -297,5 +308,13 @@ async def recognize_medicine(image: UploadFile):
         logger.info(f"Received image: {image.filename}")
 
         return {"results": detection_with_classification}
+    except cv2.error as e:
+        logger.error(f"OpenCV error in recognize_medicine: {e}")
+        raise HTTPException(status_code=400, detail="Error processing image for recognition. The image might be corrupted.")
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error in recognize_medicine: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during medicine recognition.")

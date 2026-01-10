@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+import fastapi
 from fastapi import FastAPI, Depends
 from starlette.middleware.cors import CORSMiddleware
 
@@ -44,6 +45,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: fastapi.Request, exc: Exception):
+    logger.error(f"Global error: {exc}", exc_info=True)
+    return fastapi.responses.JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error. Please contact support."},
+    )
 
 app.include_router(auth_routes, prefix="/auth", tags=["auth"])
 app.include_router(users_routes, prefix="/users", tags=["users"])
