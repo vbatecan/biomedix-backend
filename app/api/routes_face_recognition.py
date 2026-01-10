@@ -6,6 +6,8 @@ import cv2
 import fastapi
 import numpy as np
 from deepface import DeepFace
+from pathlib import Path
+
 from fastapi import UploadFile
 from pandas.core.series import Series
 from pydantic import BaseModel
@@ -84,7 +86,7 @@ async def recognize_face(
 
             highest_confidence = max(combined, key=lambda x: x[1])
             print(f"High confidence match: {highest_confidence}")
-            face_name = highest_confidence[0].split(os.path.sep)[0]
+            face_name = Path(highest_confidence[0]).parent.name
             logger.info(
                 "Recognized %s with confidence %.2f", face_name, highest_confidence[1]
             )
@@ -95,12 +97,10 @@ async def recognize_face(
             else:
                 print("Able to pass the confidence check.")
 
-            # Get User by Face Name
             user = await UserService.get_user_by_face_name(db, face_name)
 
             token = await security.create_access_token(user.id, None) if user else ""
             if user:
-                # Create record.
                 record = await AuthenticationHistoryService.add_auth_access(db, user.id)
 
                 if record:
@@ -122,6 +122,7 @@ async def recognize_face(
                 logger.debug("No user was detected associated with this face name")
             break
 
+    logger.info("Face identities: %s", face_identities)
     return face_identities
 
 
