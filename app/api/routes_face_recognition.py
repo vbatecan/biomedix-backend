@@ -53,7 +53,19 @@ async def recognize_face(
     face_identities = []
     for face in faces_detected:
         x, y, w, h = face.box
-        face_img = image[y : y + h, x : x + w]
+        # Add padding to the face crop to improve re-detection and alignment
+        h_img, w_img, _ = image.shape
+        padding = 0.20  # 20% padding
+        
+        pad_x = int(w * padding)
+        pad_y = int(h * padding)
+        
+        x_new = max(0, x - pad_x)
+        y_new = max(0, y - pad_y)
+        w_new = min(w_img, x + w + pad_x) - x_new
+        h_new = min(h_img, y + h + pad_y) - y_new
+        
+        face_img = image[y_new : y_new + h_new, x_new : x_new + w_new]
         try:
             results = df.find(
                 img_path=face_img,
@@ -63,7 +75,7 @@ async def recognize_face(
                 silent=True,
                 refresh_database=True,
                 anti_spoofing=True,
-                detector_backend="opencv",
+                detector_backend="ssd",
                 align=True,
             )
         except ValueError as e:
@@ -76,7 +88,7 @@ async def recognize_face(
             combined = list(zip(identity, confidence))
 
             if not combined:
-                print("No matches found")
+                print(result)
                 logger.debug(
                     "No matches found with identity: %s and confidence: %s",
                     identity,
@@ -85,7 +97,6 @@ async def recognize_face(
                 continue
 
             highest_confidence = max(combined, key=lambda x: x[1])
-            print(f"High confidence match: {highest_confidence}")
             face_name = Path(highest_confidence[0]).parent.name
             logger.info(
                 "Recognized %s with confidence %.2f", face_name, highest_confidence[1]
@@ -145,7 +156,7 @@ async def face_recognition(image: UploadFile, db=fastapi.Depends(database.get_db
         faces = df.extract_faces(
             image_data,
             enforce_detection=False,
-            detector_backend="opencv",
+            detector_backend="ssd",
             align=True,
             anti_spoofing=True,
         )
