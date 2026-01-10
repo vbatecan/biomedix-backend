@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS access_logs
+(
+    id         SERIAL PRIMARY KEY,
+    user_id    INT REFERENCES users (id) ON DELETE SET NULL,
+    action     VARCHAR(255) NOT NULL,
+    timestamp  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
