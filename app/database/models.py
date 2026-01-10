@@ -68,3 +68,18 @@ class AuthenticationHistory(Base):
     time_authenticated: Mapped[datetime] = mapped_column(server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class AccessLog(Base):
+    __tablename__ = "access_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    # We can fetch face_name and email from the related User object if needed,
+    # or denormalize if we want to keep history even if user details change.
+    # For now, relating to User is cleaner.
+    user: Mapped["User"] = relationship("User")
+    action: Mapped[str] = mapped_column(String(255))
+    timestamp: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+

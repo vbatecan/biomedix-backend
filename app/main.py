@@ -9,6 +9,7 @@ from app.api.routes_users import router as users_routes
 from app.api.routes_medicine import router as medicine_routes
 from app.api.routes_face_recognition import router as face_recognition_routes
 from app.api.routes_transactions import router as transactions_routes
+from app.api.routes_access_logs import router as access_logs_routes
 from app.scheduler.scheduler import start_scheduler, scheduler
 
 # Configure logging
@@ -60,6 +61,7 @@ app.include_router(users_routes, prefix="/users", tags=["users"])
 app.include_router(medicine_routes, prefix="/medicines", tags=["medicines"])
 app.include_router(face_recognition_routes, prefix="/faces", tags=["faces"])
 app.include_router(transactions_routes, prefix="/transactions", tags=["transactions"])
+app.include_router(access_logs_routes, prefix="/access-logs", tags=["access-logs"])
 
 
 @app.get("/")

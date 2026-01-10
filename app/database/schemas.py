@@ -91,6 +91,25 @@ class TransactionSchema(pydantic.BaseModel):
     model_config = {"from_attributes": True}
 
 
+
 class MessageResponse(BaseModel):
     ok: bool
     message: str
+
+
+class AccessLogSchema(BaseModel):
+    id: int
+    user_id: int
+    user: Optional[UserSchema] = None
+    action: str
+    timestamp: datetime
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
+class CreateAccessLogSchema(BaseModel):
+    user_id: int
+    action: str
+

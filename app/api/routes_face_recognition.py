@@ -66,7 +66,7 @@ async def recognize_face(
                 detector_backend="opencv",
                 align=True,
             )
-        except ValueError as e:  # No items found in the database
+        except ValueError as e:
             logger.debug("No faces in the database to compare.")
             continue
 
@@ -91,7 +91,7 @@ async def recognize_face(
                 "Recognized %s with confidence %.2f", face_name, highest_confidence[1]
             )
 
-            if highest_confidence[1] < FACE_RECOGNITION_CONF:  # Confidence threshold
+            if highest_confidence[1] < FACE_RECOGNITION_CONF:
                 print("Was not able to go through the minimum confidence")
                 continue
             else:
