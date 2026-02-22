@@ -3,7 +3,7 @@ from ultralytics import YOLO
 
 model = YOLO("yolo11n.pt")
 dataset = {
-    "location": "/home/vbatecan/Projects/medicine-storage-system/datasets/medicine-detection-6"
+    "location": "/home/nytri/Projects/biomedix/biomedix-backend/datasets/medicine-detection-9"
 }
 
 
@@ -44,25 +44,8 @@ def train():
         epochs=200,
         imgsz=800,
         batch=12,
-        patience=75,
-        augment=True,
+        patience=16,
         optimizer="adamw",
-        lr0=0.0128,
-        degrees=0.0,
-        translate=0.11471,
-        scale=0.5,
-        shear=0.0,
-        perspective=0.0,
-        flipud=0.0,
-        fliplr=0.4414,
-        mosaic=1.0,
-        mixup=0.0,
-        copy_paste=0.0,
-        hsv_h=0.015,
-        hsv_s=0.59108,
-        hsv_v=0.37654,
-        box=0.2,
-        cls=0.42205,
         name="medicine-detection-yolov11n"
     )
 

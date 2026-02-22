@@ -16,3 +16,4 @@ apscheduler
 albumentationsx
 tf-keras
 bcrypt==4.3.0
+roboflow

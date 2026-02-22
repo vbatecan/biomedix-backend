@@ -5,7 +5,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 from ultralytics import YOLO
 
 model = YOLO("models/detection.pt")
-CONFIDENCE_THRESHOLD = 0.3
+CONFIDENCE_THRESHOLD = 0.7
 
 
 class ObjectDetectionService:
