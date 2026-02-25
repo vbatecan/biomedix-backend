@@ -30,6 +30,17 @@ df = DeepFace
 FACE_RECOGNITION_CONF = config.FACE_RECOGNITION_CONF
 
 
+def _extract_face_name(identity_path: str) -> str:
+    """
+    Extract folder name from DeepFace identity paths and tolerate Windows-style separators.
+    """
+    normalized_path = str(identity_path).replace("\\", "/").strip()
+    parts = [part for part in normalized_path.split("/") if part]
+    if len(parts) >= 2:
+        return parts[-2].strip()
+    return Path(normalized_path).stem.strip()
+
+
 class Face(BaseModel):
     box: tuple[int, int, int, int]
     left_eye: tuple[int, int] | None
@@ -78,60 +89,115 @@ async def recognize_face(
                 detector_backend="ssd",
                 align=True,
             )
-        except ValueError as e:
+        except ValueError:
             logger.debug("No faces in the database to compare.")
             continue
 
+        matched_user = False
         for result in results:
+            if "identity" not in result:
+                logger.debug("DeepFace result has no identity column: %s", result.columns)
+                continue
+
             identity: Series = result["identity"]
-            confidence: Series = result["confidence"]
-            combined = list(zip(identity, confidence))
+            if "confidence" in result:
+                confidence: Series = result["confidence"]
+                # Confidence-based output: higher is better.
+                combined = sorted(
+                    list(zip(identity, confidence)),
+                    key=lambda item: float(item[1]),
+                    reverse=True,
+                )
+                score_mode = "confidence"
+            elif "distance" in result:
+                distance: Series = result["distance"]
+                # Distance-based output: lower is better.
+                combined = sorted(
+                    list(zip(identity, distance)),
+                    key=lambda item: float(item[1]),
+                )
+                score_mode = "distance"
+            else:
+                logger.debug("DeepFace result has no confidence/distance column: %s", result.columns)
+                continue
 
             if not combined:
-                print(result)
                 logger.debug(
-                    "No matches found with identity: %s and confidence: %s",
-                    identity,
-                    confidence,
+                    "No matches found for identities: %s",
+                    identity.tolist() if hasattr(identity, "tolist") else identity,
                 )
                 continue
 
-            highest_confidence = max(combined, key=lambda x: x[1])
-            face_name = Path(highest_confidence[0]).parent.name
-            logger.info(
-                "Recognized %s with confidence %.2f", face_name, highest_confidence[1]
-            )
+            for candidate_identity, candidate_score in combined:
+                raw_score = float(candidate_score)
 
-            if highest_confidence[1] < FACE_RECOGNITION_CONF:
-                print("Was not able to go through the minimum confidence")
-                continue
-            else:
-                print("Able to pass the confidence check.")
+                if score_mode == "confidence":
+                    # DeepFace confidence can be 0-1 or 0-100 depending on backend/version.
+                    threshold = FACE_RECOGNITION_CONF
+                    if raw_score > 1 and threshold <= 1:
+                        threshold *= 100
+                    elif raw_score <= 1 and threshold > 1:
+                        threshold /= 100
 
-            user = await UserService.get_user_by_face_name(db, face_name)
-
-            token = await security.create_access_token(user.id, None) if user else ""
-            if user:
-                record = await AuthenticationHistoryService.add_auth_access(db, user.id)
-
-                if record:
-                    face_identities.append(
-                        FaceRecognitionResult(
-                            face=face,
-                            identity=face_name,
-                            confidence=highest_confidence[1],
-                            role=user.role,
-                            user=UserSchema.model_validate(user),
-                            token=token,
+                    if raw_score < threshold:
+                        logger.debug(
+                            "Skipping %s due to low confidence %.4f (< %.4f)",
+                            candidate_identity,
+                            raw_score,
+                            threshold,
                         )
-                    )
+                        continue
+                    reported_score = raw_score
                 else:
-                    logger.debug(
-                        "Failed to create authentication history record because of unknown error."
+                    if raw_score > FACE_RECOGNITION_CONF:
+                        logger.debug(
+                            "Skipping %s due to high distance %.4f (> %.4f)",
+                            candidate_identity,
+                            raw_score,
+                            FACE_RECOGNITION_CONF,
+                        )
+                        continue
+                    # Keep return field semantically as "confidence": 1-distance.
+                    reported_score = max(0.0, 1.0 - raw_score)
+
+                face_name = _extract_face_name(candidate_identity)
+                if not face_name:
+                    logger.debug("Could not extract face name from identity path: %s", candidate_identity)
+                    continue
+
+                logger.info("Recognized %s with %s score %.4f", face_name, score_mode, raw_score)
+                user = await UserService.get_user_by_face_name(db, face_name)
+                if not user:
+                    logger.debug("No user matched face name '%s'", face_name)
+                    continue
+
+                token = await security.create_access_token(user.id, None)
+                face_identities.append(
+                    FaceRecognitionResult(
+                        face=face,
+                        identity=face_name,
+                        confidence=reported_score,
+                        role=user.role,
+                        user=UserSchema.model_validate(user),
+                        token=token,
                     )
-            else:
-                logger.debug("No user was detected associated with this face name")
-            break
+                )
+
+                # History write should not block successful recognition response.
+                try:
+                    await AuthenticationHistoryService.add_auth_access(db, user.id)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to write authentication history for user %s: %s",
+                        user.id,
+                        e,
+                    )
+
+                matched_user = True
+                break
+
+            if matched_user:
+                break
 
     logger.info("Face identities: %s", face_identities)
     return face_identities
@@ -202,13 +268,6 @@ async def face_recognition(image: UploadFile, db=fastapi.Depends(database.get_db
     except Exception as e:
         logger.error(f"Error in recognition logic: {e}", exc_info=True)
         raise fastapi.HTTPException(status_code=500, detail="Error during face recognition process")
-
-    if not TEST:
-        try:
-            requests.get(f"http://{cabinet_url}/unlock", timeout=1)
-        except requests.RequestException as e:
-            logger.error(f"Failed to unlock cabinet: {e}")
-            pass
 
     try:
         from app.services.serial_service import SerialService
