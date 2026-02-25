@@ -82,7 +82,7 @@ class TransactionDetailSchema(pydantic.BaseModel):
 
 class TransactionSchema(pydantic.BaseModel):
     id: int
-    user: UserSchema
+    user: Optional[UserSchema] = None
     mode: ModeEnum
     transaction_details: List[TransactionDetailSchema]
     transaction_date: Optional[datetime] = None
