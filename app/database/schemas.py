@@ -85,6 +85,7 @@ class TransactionSchema(pydantic.BaseModel):
     user: UserSchema
     mode: ModeEnum
     transaction_details: List[TransactionDetailSchema]
+    transaction_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -112,4 +113,3 @@ class AccessLogSchema(BaseModel):
 class CreateAccessLogSchema(BaseModel):
     user_id: int
     action: str
-

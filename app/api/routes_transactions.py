@@ -44,5 +44,5 @@ async def all(page: int = 0, size: int = 10, db=Depends(get_db)):
 async def get_user_transactions(start_datetime: datetime, end_datetime: datetime,
                                 user_id: int = Depends(get_current_user), db=Depends(get_db)):
     date_range = DateTimeRange(start_datetime, end_datetime)
-    result = TransactionService.get_user_transactions(db, user_id, date_range, page=1, size=10)
+    result = await TransactionService.get_user_transactions(db, user_id, date_range, page=1, size=10)
     return result

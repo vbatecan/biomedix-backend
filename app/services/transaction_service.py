@@ -10,11 +10,11 @@ from app.utils.datetimerange import DateTimeRange
 class TransactionService:
     @staticmethod
     async def get_user_transactions(db: AsyncSession, user_id: int, date_range: DateTimeRange, page: int, size: int):
-        is_user_exists = UserService.is_exist(db, user_id)
+        is_user_exists = await UserService.is_exist(db, user_id)
         if not is_user_exists:
             raise ValueError("User does not exists.")
 
-        result = db.execute(
+        result = await db.execute(
             select(Transaction)
             .options(joinedload(Transaction.user))
             .options(joinedload(Transaction.transaction_details).joinedload(TransactionDetail.medicine))
@@ -25,11 +25,11 @@ class TransactionService:
             .offset((page - 1) * size)
         )
 
-        return (await result).scalars().all()
+        return result.unique().scalars().all()
 
     @staticmethod
     async def all(db: AsyncSession, page: int, size: int):
-        result = db.execute(
+        result = await db.execute(
             select(Transaction)
             .options(joinedload(Transaction.user))
             .options(joinedload(Transaction.transaction_details).joinedload(TransactionDetail.medicine))
@@ -37,4 +37,4 @@ class TransactionService:
             .offset(page * size)
         )
 
-        return (await result).unique().scalars().all()
+        return result.unique().scalars().all()
