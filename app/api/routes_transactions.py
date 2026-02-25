@@ -49,7 +49,12 @@ async def get_user_transactions(
     user_id: str = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    user_id_int = int(user_id) if user_id and user_id.isdigit() else None
+    if isinstance(user_id, int):
+        user_id_int = user_id
+    elif isinstance(user_id, str) and user_id.isdigit():
+        user_id_int = int(user_id)
+    else:
+        user_id_int = None
     if not user_id_int:
         raise HTTPException(status_code=401, detail="Invalid user ID")
 
