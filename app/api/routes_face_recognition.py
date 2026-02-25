@@ -18,11 +18,10 @@ import app.core.security as security
 import app.database.database as database
 from app.database.schemas import RoleEnum, UserSchema
 from app.services.authentication_history_service import AuthenticationHistoryService
-from app.services.serial_device_service import SerialDeviceService
 from app.services.user_service import UserService
 
 cabinet_url = "10.42.0.203"
-TEST = True
+TEST = False
 
 router = fastapi.APIRouter()
 logger = logging.getLogger(__name__)
@@ -209,15 +208,16 @@ async def face_recognition(image: UploadFile, db=fastapi.Depends(database.get_db
             requests.get(f"http://{cabinet_url}/unlock", timeout=1)
         except requests.RequestException as e:
             logger.error(f"Failed to unlock cabinet: {e}")
-            # Do not fail the whole request just because cabinet unlock failed, but maybe warn?
-            # Or maybe we should return a warning in the response.
             pass
 
-    if recognition_results:
-        sent_count = SerialDeviceService.send_to_all_devices("open")
-        if sent_count == 0:
-            logger.info(
-                "Face recognition succeeded but no serial devices were updated with payload 'open'."
-            )
+    try:
+        from app.services.serial_service import SerialService
+
+        if len(recognition_results) > 0:
+            SerialService.send_command("open")
+        else:
+            SerialService.send_command("close")
+    except Exception as e:
+        logger.error(f"Failed to trigger serial unlock: {e}")
 
     return recognition_results
