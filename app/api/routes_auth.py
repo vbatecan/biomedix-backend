@@ -9,13 +9,20 @@ router = fastapi.APIRouter()
 
 
 @router.post("/login")
-async def login(login_request: LoginRequest, response: fastapi.Response, db=fastapi.Depends(get_db)):
-    result: LoginSuccess = await AuthenticationService.authenticate(db, login_request.email, login_request.password)
-    if type(result) == MessageResponse:
+async def login(
+    login_request: LoginRequest, response: fastapi.Response, db=fastapi.Depends(get_db)
+):
+    result: LoginSuccess = await AuthenticationService.authenticate(
+        db, login_request.email, login_request.password
+    )
+    if isinstance(result, MessageResponse):
         raise fastapi.HTTPException(status_code=401, detail=result.message)
 
     if not result.user.is_active:
-        raise fastapi.HTTPException(status_code=401, detail="User is inactive. Please contact the administrator.")
+        raise fastapi.HTTPException(
+            status_code=401,
+            detail="User is inactive. Please contact the administrator.",
+        )
 
     response.set_cookie("token", result.access_token, httponly=True)
     return result
