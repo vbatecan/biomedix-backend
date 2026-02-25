@@ -91,10 +91,13 @@ async def get_medicine(medicine_id: int, db=fastapi.Depends(db.get_db)):
 
 @router.get("/search/{name}")
 async def search_medicine(name: str, db=fastapi.Depends(db.get_db)):
-    medicines = await InventoryService.search_by_name(db, name)
-    if not medicines:
-        raise HTTPException(status_code=404, detail="No medicines found")
-    return medicines
+    try:
+        medicines = await InventoryService.search_by_name(db, name)
+        if not medicines:
+            raise HTTPException(status_code=404, detail="No medicines found")
+        return medicines
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/add")
@@ -210,6 +213,8 @@ async def add_medicine(
                 replace_existing=True,
             )
         return new_medicine
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error saving medicine to database: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to save medicine information.")

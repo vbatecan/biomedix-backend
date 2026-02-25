@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Medicine, Transaction, TransactionDetail
@@ -8,6 +8,12 @@ from app.types.MedicineInput import MedicineInput
 
 
 class InventoryService:
+    @staticmethod
+    def _normalized_name(name: str) -> str:
+        normalized = name.strip().lower()
+        if not normalized:
+            raise ValueError("Medicine name cannot be empty")
+        return normalized
 
     @staticmethod
     async def log_transaction(db: AsyncSession, medicine_id: int, quantity: int, user_id: int, mode: str):
@@ -28,8 +34,9 @@ class InventoryService:
 
     @staticmethod
     async def add_stock(db: AsyncSession, medicine_name: str, increment: int, user_id: int):
+        normalized_name = InventoryService._normalized_name(medicine_name)
         result = await db.execute(
-            select(Medicine).where(Medicine.name == medicine_name)
+            select(Medicine).where(func.lower(Medicine.name) == normalized_name)
         )
         medicine = result.scalar_one_or_none()
 
@@ -47,8 +54,9 @@ class InventoryService:
 
     @staticmethod
     async def reduce_stock(db: AsyncSession, medicine_name: str, decrement: int, user_id: int):
+        normalized_name = InventoryService._normalized_name(medicine_name)
         result = await db.execute(
-            select(Medicine).where(Medicine.name == medicine_name)
+            select(Medicine).where(func.lower(Medicine.name) == normalized_name)
         )
         medicine = result.scalar_one_or_none()
         if medicine is None:
@@ -81,17 +89,19 @@ class InventoryService:
 
     @staticmethod
     async def search_by_name(db: AsyncSession, name: str):
+        normalized_name = InventoryService._normalized_name(name)
         result = await db.execute(
-            select(Medicine).where(Medicine.name.ilike(f"%{name}%"))
+            select(Medicine).where(func.lower(Medicine.name).contains(normalized_name))
         )
         medicines = result.scalars().all()
         return medicines
 
     @staticmethod
     async def add_medicine(db: AsyncSession, medicine: MedicineInput, thumbnail_path: str):
+        normalized_name = InventoryService._normalized_name(medicine.name)
         # Check if medicine with the same name already exists
         result = await db.execute(
-            select(Medicine).where(Medicine.name == medicine.name)
+            select(Medicine).where(func.lower(Medicine.name) == normalized_name)
         )
         existing_medicine = result.scalar_one_or_none()
         if existing_medicine:
